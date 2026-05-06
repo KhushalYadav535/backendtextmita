@@ -1,0 +1,18 @@
+[Unit]
+Description=TextFind Python OCR Backend
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/textfind
+Environment="PATH=/opt/textfind/venv/bin"
+EnvironmentFile=/opt/textfind/.env
+ExecStart=/opt/textfind/venv/bin/gunicorn --workers 2 --bind 0.0.0.0:5000 --timeout 120 ocr_server:app
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,11 @@
+Flask
+flask-cors
+python-dotenv
+requests
+paddlepaddle
+paddleocr
+pdfplumber
+Pillow
+opencv-python-headless
+openpyxl
+gunicorn
