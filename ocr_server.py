@@ -78,7 +78,7 @@ def run_ocr(image_path, lang='en'):
     ocr = ocr_hi if lang == 'hi' and ocr_hi else ocr_en
     if not ocr:
         return ""
-    result = ocr.ocr(image_path, cls=True)
+    result = ocr.ocr(image_path)
     text = ""
     if result and result[0]:
         for line in result[0]:
@@ -719,6 +719,80 @@ def health_check():
         "groq_ready": bool(GROQ_API_KEY)
     })
 
+# ─── /api/magic-replace ────────────────────────────────────────────────────────
+@app.route('/api/magic-replace', methods=['POST'])
+def magic_replace():
+    if 'file' not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+    
+    file = request.files['file']
+    find_text = request.form.get('find_text', '')
+    replace_text = request.form.get('replace_text', '')
+    
+    if file.filename == '' or not find_text:
+        return jsonify({"error": "Missing file or find_text"}), 400
+
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        temp_dir = tempfile.mkdtemp()
+        filepath = os.path.join(temp_dir, file.filename)
+        file.save(filepath)
+
+        ocr_engine = ocr_en
+        if ocr_engine is None:
+            return jsonify({"error": "PaddleOCR is not initialized"}), 500
+
+        result = ocr_engine.ocr(filepath)
+        
+        img = Image.open(filepath).convert("RGB")
+        draw = ImageDraw.Draw(img)
+        
+        try:
+            font = ImageFont.truetype("arial.ttf", 20)
+        except:
+            font = ImageFont.load_default()
+
+        replaced_count = 0
+        if result and result[0]:
+            for line in result[0]:
+                box = line[0]
+                text = line[1][0]
+                
+                if find_text.lower() in text.lower():
+                    xs = [p[0] for p in box]
+                    ys = [p[1] for p in box]
+                    x_min, x_max = min(xs), max(xs)
+                    y_min, y_max = min(ys), max(ys)
+                    
+                    draw.rectangle([x_min-2, y_min-2, x_max+2, y_max+2], fill=(255, 255, 255))
+                    
+                    try:
+                        box_height = int(y_max - y_min)
+                        dyn_font = ImageFont.truetype("arial.ttf", max(10, box_height - 4))
+                    except:
+                        dyn_font = font
+                        
+                    draw.text((x_min, y_min), replace_text, fill=(0, 0, 0), font=dyn_font)
+                    replaced_count += 1
+
+        if replaced_count == 0:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return jsonify({"success": False, "message": "Text not found in image."}), 404
+
+        output_path = os.path.join(temp_dir, f"replaced_{file.filename}")
+        img.save(output_path)
+        
+        from flask import send_file
+        return send_file(
+            output_path,
+            as_attachment=True,
+            download_name=f"Replaced_{file.filename}",
+            mimetype='image/png' if file.filename.lower().endswith('.png') else 'image/jpeg'
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
