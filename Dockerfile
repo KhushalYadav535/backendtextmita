@@ -32,4 +32,4 @@ RUN python download_models.py || echo "Models will be downloaded on first run"
 EXPOSE 5000
 
 # ─── Start Server ────────────────────────────────────────────────────────────
-CMD gunicorn --workers 2 --bind 0.0.0.0:${PORT:-5000} --timeout 120 ocr_server:app
+CMD gunicorn --workers 2 --bind 0.0.0.0:${PORT:-5000} --timeout 600 ocr_server:app

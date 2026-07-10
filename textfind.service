@@ -8,7 +8,7 @@ User=root
 WorkingDirectory=/opt/textfind
 Environment="PATH=/opt/textfind/venv/bin"
 EnvironmentFile=/opt/textfind/.env
-ExecStart=/opt/textfind/venv/bin/gunicorn --workers 2 --bind 0.0.0.0:5000 --timeout 120 ocr_server:app
+ExecStart=/opt/textfind/venv/bin/gunicorn --workers 2 --bind 0.0.0.0:5000 --timeout 600 ocr_server:app
 Restart=always
 RestartSec=5
 StandardOutput=journal

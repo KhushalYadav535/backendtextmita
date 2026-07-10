@@ -18,7 +18,7 @@ python download_models.py
 exec gunicorn \
   --workers 2 \
   --bind 0.0.0.0:5000 \
-  --timeout 120 \
+  --timeout 600 \
   --access-logfile /var/log/textfind/access.log \
   --error-logfile /var/log/textfind/error.log \
   ocr_server:app
