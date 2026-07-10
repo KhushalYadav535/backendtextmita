@@ -8,6 +8,10 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
 
+# --- FIX FOR PADDLEPADDLE C++ BUG (ConvertPirAttribute2RuntimeAttribute) ---
+os.environ["FLAGS_enable_pir_api"] = "0"
+os.environ["FLAGS_enable_pir_in_executor"] = "0"
+
 load_dotenv()  # Load .env file from python-backend/
 
 app = Flask(__name__)
