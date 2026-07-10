@@ -38,6 +38,20 @@ except Exception as e:
     print(f"Warning: PaddleOCR (Hindi) failed: {e}")
     ocr_hi = None
 
+# ─── Initialize ChromaDB and RAG ──────────────────────────────────────────────
+import time
+try:
+    print("Initializing RAG (ChromaDB & SentenceTransformers)...")
+    import chromadb
+    from sentence_transformers import SentenceTransformer
+    chroma_client = chromadb.Client()
+    embedder = SentenceTransformer('all-MiniLM-L6-v2')
+    RAG_ENABLED = True
+    print("RAG initialized successfully.")
+except Exception as e:
+    print(f"Warning: RAG initialization failed: {e}")
+    RAG_ENABLED = False
+
 
 # ─── Helper: Enhance image for better OCR ─────────────────────────────────────
 def enhance_image(image_path, output_path):
@@ -88,20 +102,35 @@ def table_to_markdown(table):
 
 # ─── Helper: Reconstruct PDF text with formatting ─────────────────────────────
 def reconstruct_page_text(words, tables_boxes):
-    """Group words into lines and detect headings/bold from font size"""
+    """Group words into lines, maintain horizontal layout spacing, and detect headings/bold"""
     if not words:
+        return ""
+
+    # Filter out words that are inside tables to prevent duplicates
+    filtered_words = []
+    for w in words:
+        in_table = False
+        for box in tables_boxes:
+            # box is (x0, top, x1, bottom)
+            if box[0] <= w['x0'] <= box[2] and box[1] <= w['top'] <= box[3]:
+                in_table = True
+                break
+        if not in_table:
+            filtered_words.append(w)
+            
+    if not filtered_words:
         return ""
 
     # Group words by approximate vertical line
     lines = {}
-    for w in words:
+    for w in filtered_words:
         y_key = round(w['top'] / 4) * 4
         if y_key not in lines:
             lines[y_key] = []
         lines[y_key].append(w)
 
     # Gather all font sizes to compute median (normal body text size)
-    all_sizes = [w.get('size', 10) for w in words if w.get('size')]
+    all_sizes = [w.get('size', 10) for w in filtered_words if w.get('size')]
     if all_sizes:
         all_sizes.sort()
         median_size = all_sizes[len(all_sizes) // 2]
@@ -111,21 +140,40 @@ def reconstruct_page_text(words, tables_boxes):
     result_lines = []
     for y_key in sorted(lines.keys()):
         line_words = sorted(lines[y_key], key=lambda w: w['x0'])
-        line_text = ' '.join(w['text'] for w in line_words)
+        
+        # Reconstruct line maintaining horizontal spacing
+        line_text = ""
+        last_x1 = line_words[0]['x0'] if line_words else 0
+        
+        for w in line_words:
+            gap = w['x0'] - last_x1
+            # Estimate average space width based on font size (usually ~0.25 to 0.3 of font size)
+            space_width = max(w.get('size', median_size) * 0.3, 2.0)
+            
+            if gap > space_width * 1.5:
+                # Insert multiple spaces to preserve visual layout (columns, tabs, indents)
+                num_spaces = int(gap / space_width)
+                line_text += " " * num_spaces
+            elif line_text and gap > 0:
+                line_text += " "
+                
+            line_text += w['text']
+            last_x1 = w['x1']
+            
         # Remove (cid:xxx) artifacts
-        line_text = re.sub(r'\(cid:\d+\)', '', line_text).strip()
-        if not line_text:
+        line_text = re.sub(r'\(cid:\d+\)', '', line_text).rstrip()
+        if not line_text.strip():
             continue
 
         avg_size = sum(w.get('size', median_size) for w in line_words) / len(line_words)
         is_bold = any('Bold' in w.get('fontname', '') or 'bold' in w.get('fontname', '') for w in line_words)
 
         if avg_size >= median_size * 1.6:          # Big heading (H2)
-            result_lines.append(f"\n## {line_text}\n")
+            result_lines.append(f"\n## {line_text.strip()}\n")
         elif avg_size >= median_size * 1.3:        # Sub-heading (H3)
-            result_lines.append(f"\n### {line_text}\n")
+            result_lines.append(f"\n### {line_text.strip()}\n")
         elif is_bold and avg_size >= median_size * 1.1:
-            result_lines.append(f"**{line_text}**")
+            result_lines.append(f"**{line_text.strip()}**")
         else:
             result_lines.append(line_text)
 
@@ -586,12 +634,58 @@ def export_excel():
 @app.route('/api/ai/chat', methods=['POST'])
 def ai_chat():
     data = request.get_json()
-    context = data.get('context', '')[:2000]  # Document text
-    messages = data.get('messages', [])  # Chat history
+    full_context = data.get('context', '')
+    messages = data.get('messages', [])
     question = data.get('question', '')
 
     if not question.strip():
         return jsonify({"error": "Question required"}), 400
+
+    context = full_context[:2000] # Default for small documents
+
+    # --- RAG Logic for Large Documents ---
+    rag_used = False
+    if RAG_ENABLED and len(full_context) > 2000:
+        try:
+            # Simple chunking (1000 chars per chunk, 200 char overlap)
+            chunk_size = 1000
+            overlap = 200
+            chunks = []
+            for i in range(0, len(full_context), chunk_size - overlap):
+                chunks.append(full_context[i:i+chunk_size])
+            
+            # Temporary collection for this query
+            collection_name = f"doc_{hash(full_context[:100])}_{int(time.time())}"
+            # Ensure safe collection name (alphanumeric, no hyphens, no negative signs)
+            collection_name = collection_name.replace('-', '0')
+            collection = chroma_client.create_collection(name=collection_name)
+            
+            # Create embeddings and add to collection
+            embeddings = embedder.encode(chunks).tolist()
+            collection.add(
+                embeddings=embeddings,
+                documents=chunks,
+                ids=[str(i) for i in range(len(chunks))]
+            )
+            
+            # Query the collection
+            query_embedding = embedder.encode([question]).tolist()
+            results = collection.query(
+                query_embeddings=query_embedding,
+                n_results=3
+            )
+            
+            if results['documents'] and results['documents'][0]:
+                retrieved_chunks = results['documents'][0]
+                context = "\n...[RAG RETRIEVED CONTEXT]...\n".join(retrieved_chunks)
+                rag_used = True
+                
+            # Cleanup
+            chroma_client.delete_collection(name=collection_name)
+        except Exception as e:
+            print(f"RAG Error: {e}")
+            # Fallback to default context truncation
+            context = full_context[:3000]
 
     # Build conversation history
     history = ''
@@ -604,14 +698,14 @@ def ai_chat():
 If the answer is not in the document, say so. Be concise.
 If document is in Hindi, reply in Hindi.
 
-Document:
+Document Context:
 {context}
 
 {history}USER: {question}
 ASSISTANT:"""
 
-    answer = call_ollama(prompt, max_tokens=300)
-    return jsonify({"success": True, "answer": answer})
+    answer = call_ollama(prompt, max_tokens=400)
+    return jsonify({"success": True, "answer": answer, "rag_used": rag_used})
 
 
 # ─── /api/health ──────────────────────────────────────────────────────────────
