@@ -84,33 +84,54 @@ def run_ocr(image_path, lang='en'):
     if not ocr:
         return ""
     result = ocr.ocr(image_path)
-    if not result or not result[0]:
+    if not result:
         return ""
 
-    boxes = []
-    for line in result[0]:
+    res_list = result[0] if (isinstance(result, list) and len(result) > 0 and isinstance(result[0], list)) else result
+    if not res_list:
+        return ""
+
+    def extract_box_coords(box):
         try:
-            box = line[0]
-            # Handle different PaddleOCR return structures safely
-            if isinstance(line[1], (tuple, list)):
-                text_val = line[1][0] if len(line[1]) > 0 else ""
-            else:
-                text_val = str(line[1]) if line[1] else ""
-                
-            ys = [p[1] for p in box]
-            xs = [p[0] for p in box]
-            boxes.append({
-                'top': min(ys),
-                'bottom': max(ys),
-                'x0': min(xs),
-                'x1': max(xs),
-                'text': text_val
-            })
-        except Exception as e:
-            print(f"Skipping malformed OCR line: {e}")
+            if not box: return None
+            if isinstance(box, (list, tuple)) and all(isinstance(p, (list, tuple)) for p in box):
+                ys = [float(p[1]) for p in box if len(p) >= 2]
+                xs = [float(p[0]) for p in box if len(p) >= 2]
+                if ys and xs: return min(ys), max(ys), min(xs), max(xs)
+            elif isinstance(box, (list, tuple)) and len(box) == 8:
+                xs = [float(box[i]) for i in range(0, 8, 2)]
+                ys = [float(box[i]) for i in range(1, 8, 2)]
+                return min(ys), max(ys), min(xs), max(xs)
+            elif isinstance(box, dict) and 'points' in box:
+                return extract_box_coords(box['points'])
+        except Exception:
+            pass
+        return None
+
+    boxes = []
+    for item in res_list:
+        try:
+            text_val = ""
+            box_coords = None
+            if isinstance(item, dict):
+                text_val = item.get('text', item.get('rec_text', ''))
+                box_coords = extract_box_coords(item.get('box', item.get('dt_polys')))
+            elif isinstance(item, (list, tuple)) and len(item) >= 2:
+                if isinstance(item[1], (list, tuple)) and len(item[1]) > 0:
+                    text_val = str(item[1][0])
+                else:
+                    text_val = str(item[1])
+                box_coords = extract_box_coords(item[0])
+            
+            if text_val:
+                bc = box_coords if box_coords else (0, 0, 0, 0)
+                boxes.append({'top': bc[0], 'bottom': bc[1], 'x0': bc[2], 'x1': bc[3], 'text': text_val})
+        except Exception:
             continue
 
-    # Group OCR boxes by approximate vertical line using bounding box overlap
+    if not boxes:
+        return ""
+
     boxes.sort(key=lambda w: w['top'])
     lines = []
     current_line = []
@@ -120,29 +141,31 @@ def run_ocr(image_path, lang='en'):
     for w in boxes:
         if current_top is None:
             current_line.append(w)
-            current_top = w['top']
-            current_bottom = w['bottom']
+            current_top, current_bottom = w['top'], w['bottom']
         else:
             overlap = max(0, min(current_bottom, w['bottom']) - max(current_top, w['top']))
             word_height = w['bottom'] - w['top']
-            # If overlap is > 40% of the word's height, consider it the same line
-            if word_height > 0 and (overlap / word_height) > 0.4:
+            if (word_height > 0 and (overlap / word_height) > 0.4) or (w['top'] == current_top):
                 current_line.append(w)
                 current_top = min(current_top, w['top'])
                 current_bottom = max(current_bottom, w['bottom'])
             else:
                 lines.append(current_line)
                 current_line = [w]
-                current_top = w['top']
-                current_bottom = w['bottom']
+                current_top, current_bottom = w['top'], w['bottom']
     if current_line:
         lines.append(current_line)
 
     text_result = ""
     for line_words in lines:
         line_words = sorted(line_words, key=lambda w: w['x0'])
-        line_text = " ".join([w['text'] for w in line_words])
-        text_result += line_text + "\n"
+        line_str = ""
+        for i, w in enumerate(line_words):
+            if i > 0:
+                gap = w['x0'] - line_words[i-1]['x1']
+                if gap > 5: line_str += " "
+            line_str += w['text']
+        text_result += line_str + "\n"
 
     return text_result.strip()
 
