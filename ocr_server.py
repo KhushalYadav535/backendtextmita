@@ -78,18 +78,64 @@ def enhance_image(image_path, output_path):
         return image_path
 
 
-# ─── Helper: Run OCR on image ──────────────────────────────────────────────────
 def run_ocr(image_path, lang='en'):
     """Run PaddleOCR on image, auto-detect Hindi or English"""
     ocr = ocr_hi if lang == 'hi' and ocr_hi else ocr_en
     if not ocr:
         return ""
     result = ocr.ocr(image_path)
-    text = ""
-    if result and result[0]:
-        for line in result[0]:
-            text += line[1][0] + "\n"
-    return text.strip()
+    if not result or not result[0]:
+        return ""
+
+    boxes = []
+    for line in result[0]:
+        box = line[0]
+        text_val = line[1][0]
+        ys = [p[1] for p in box]
+        xs = [p[0] for p in box]
+        boxes.append({
+            'top': min(ys),
+            'bottom': max(ys),
+            'x0': min(xs),
+            'x1': max(xs),
+            'text': text_val
+        })
+
+    # Group OCR boxes by approximate vertical line using bounding box overlap
+    boxes.sort(key=lambda w: w['top'])
+    lines = []
+    current_line = []
+    current_top = None
+    current_bottom = None
+    
+    for w in boxes:
+        if current_top is None:
+            current_line.append(w)
+            current_top = w['top']
+            current_bottom = w['bottom']
+        else:
+            overlap = max(0, min(current_bottom, w['bottom']) - max(current_top, w['top']))
+            word_height = w['bottom'] - w['top']
+            # If overlap is > 40% of the word's height, consider it the same line
+            if word_height > 0 and (overlap / word_height) > 0.4:
+                current_line.append(w)
+                current_top = min(current_top, w['top'])
+                current_bottom = max(current_bottom, w['bottom'])
+            else:
+                lines.append(current_line)
+                current_line = [w]
+                current_top = w['top']
+                current_bottom = w['bottom']
+    if current_line:
+        lines.append(current_line)
+
+    text_result = ""
+    for line_words in lines:
+        line_words = sorted(line_words, key=lambda w: w['x0'])
+        line_text = " ".join([w['text'] for w in line_words])
+        text_result += line_text + "\n"
+
+    return text_result.strip()
 
 
 # ─── Helper: Convert pdfplumber table to Markdown ─────────────────────────────
