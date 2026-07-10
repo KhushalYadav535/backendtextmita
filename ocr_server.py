@@ -89,17 +89,26 @@ def run_ocr(image_path, lang='en'):
 
     boxes = []
     for line in result[0]:
-        box = line[0]
-        text_val = line[1][0]
-        ys = [p[1] for p in box]
-        xs = [p[0] for p in box]
-        boxes.append({
-            'top': min(ys),
-            'bottom': max(ys),
-            'x0': min(xs),
-            'x1': max(xs),
-            'text': text_val
-        })
+        try:
+            box = line[0]
+            # Handle different PaddleOCR return structures safely
+            if isinstance(line[1], (tuple, list)):
+                text_val = line[1][0] if len(line[1]) > 0 else ""
+            else:
+                text_val = str(line[1]) if line[1] else ""
+                
+            ys = [p[1] for p in box]
+            xs = [p[0] for p in box]
+            boxes.append({
+                'top': min(ys),
+                'bottom': max(ys),
+                'x0': min(xs),
+                'x1': max(xs),
+                'text': text_val
+            })
+        except Exception as e:
+            print(f"Skipping malformed OCR line: {e}")
+            continue
 
     # Group OCR boxes by approximate vertical line using bounding box overlap
     boxes.sort(key=lambda w: w['top'])
