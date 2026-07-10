@@ -11,6 +11,8 @@ from dotenv import load_dotenv
 # --- FIX FOR PADDLEPADDLE C++ BUG (ConvertPirAttribute2RuntimeAttribute) ---
 os.environ["FLAGS_enable_pir_api"] = "0"
 os.environ["FLAGS_enable_pir_in_executor"] = "0"
+os.environ["FLAGS_use_mkldnn"] = "0"
+os.environ["paddle_disable_pir"] = "1"
 
 load_dotenv()  # Load .env file from python-backend/
 
@@ -26,7 +28,7 @@ GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
 try:
     print("Initializing PaddleOCR (English)...")
     from paddleocr import PaddleOCR
-    ocr_en = PaddleOCR(use_angle_cls=True, lang='en')
+    ocr_en = PaddleOCR(use_angle_cls=True, lang='en', enable_mkldnn=False)
     print("PaddleOCR (English) initialized successfully.")
 except Exception as e:
     print(f"Warning: PaddleOCR (English) failed: {e}")
@@ -36,7 +38,7 @@ except Exception as e:
 try:
     print("Initializing PaddleOCR (Hindi)...")
     from paddleocr import PaddleOCR as PaddleOCR_Hindi
-    ocr_hi = PaddleOCR_Hindi(use_angle_cls=True, lang='hi')
+    ocr_hi = PaddleOCR_Hindi(use_angle_cls=True, lang='hi', enable_mkldnn=False)
     print("PaddleOCR (Hindi) initialized successfully.")
 except Exception as e:
     print(f"Warning: PaddleOCR (Hindi) failed: {e}")
