@@ -127,14 +127,6 @@ def reconstruct_page_text(words, tables_boxes):
     if not filtered_words:
         return ""
 
-    # Group words by approximate vertical line
-    lines = {}
-    for w in filtered_words:
-        y_key = round(w['top'] / 4) * 4
-        if y_key not in lines:
-            lines[y_key] = []
-        lines[y_key].append(w)
-
     # Gather all font sizes to compute median (normal body text size)
     all_sizes = [w.get('size', 10) for w in filtered_words if w.get('size')]
     if all_sizes:
@@ -143,9 +135,37 @@ def reconstruct_page_text(words, tables_boxes):
     else:
         median_size = 10
 
+    # Group words by approximate vertical line using bounding box overlap
+    filtered_words.sort(key=lambda w: w['top'])
+    lines = []
+    current_line = []
+    current_top = None
+    current_bottom = None
+    
+    for w in filtered_words:
+        if current_top is None:
+            current_line.append(w)
+            current_top = w['top']
+            current_bottom = w['bottom']
+        else:
+            overlap = max(0, min(current_bottom, w['bottom']) - max(current_top, w['top']))
+            word_height = w['bottom'] - w['top']
+            # If overlap is > 40% of the word's height, consider it the same line
+            if word_height > 0 and (overlap / word_height) > 0.4:
+                current_line.append(w)
+                current_top = min(current_top, w['top'])
+                current_bottom = max(current_bottom, w['bottom'])
+            else:
+                lines.append(current_line)
+                current_line = [w]
+                current_top = w['top']
+                current_bottom = w['bottom']
+    if current_line:
+        lines.append(current_line)
+
     result_lines = []
-    for y_key in sorted(lines.keys()):
-        line_words = sorted(lines[y_key], key=lambda w: w['x0'])
+    for line_words in lines:
+        line_words = sorted(line_words, key=lambda w: w['x0'])
         
         # Reconstruct line maintaining horizontal spacing
         line_text = ""
