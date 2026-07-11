@@ -381,14 +381,26 @@ def extract_pdf():
                 if is_scanned and not tables:
                     print(f"  Page {page_num + 1}: scanned, running OCR...")
                     if ocr_en:
-                        img = page.to_image(resolution=200).original
-                        img_path = os.path.join(temp_dir, f"page_{page_num}.png")
-                        enh_path = os.path.join(temp_dir, f"page_{page_num}_enh.png")
-                        img.save(img_path)
-                        final_img = enhance_image(img_path, enh_path)
-                        ocr_text = run_ocr(final_img, lang=lang)
-                        if ocr_text:
-                            page_content = [ocr_text]
+                        try:
+                            # page.to_image() needs poppler-utils installed on Linux/VPS
+                            pil_img = page.to_image(resolution=200).original
+                            img_path = os.path.join(temp_dir, f"page_{page_num}.png")
+                            enh_path = os.path.join(temp_dir, f"page_{page_num}_enh.png")
+                            pil_img.save(img_path)
+                            print(f"  Page {page_num + 1}: rendered image size={pil_img.size}, running PaddleOCR...")
+                            final_img = enhance_image(img_path, enh_path)
+                            ocr_text = run_ocr(final_img, lang=lang)
+                            print(f"  Page {page_num + 1}: OCR returned {len(ocr_text)} chars")
+                            if ocr_text:
+                                page_content = [ocr_text]
+                            else:
+                                print(f"  Page {page_num + 1}: OCR returned empty — image may be blank or low quality")
+                        except Exception as ocr_err:
+                            print(f"  Page {page_num + 1}: OCR pipeline failed — {ocr_err}")
+                            import traceback
+                            traceback.print_exc()
+                    else:
+                        print(f"  Page {page_num + 1}: PaddleOCR not initialized, cannot OCR this page")
 
                 if page_content:
                     combined = '\n'.join(page_content).strip()

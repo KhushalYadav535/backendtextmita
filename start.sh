@@ -1,5 +1,12 @@
 #!/bin/bash
 # TextFind Python Backend — VPS Startup Script
+#
+# ⚠️  SYSTEM DEPENDENCIES (run once on fresh VPS):
+#   sudo apt-get install -y poppler-utils libglib2.0-0 libsm6 \
+#       libxrender1 libxext6 libgl1-mesa-glx libgomp1
+#
+# poppler-utils  → required by pdfplumber's page.to_image() for scanned PDF OCR
+# libgl1         → required by OpenCV / PaddleOCR
 
 set -e
 

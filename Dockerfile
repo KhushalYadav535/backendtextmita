@@ -9,6 +9,8 @@ RUN apt-get update && apt-get install -y \
     libxext6 \
     libgl1 \
     libgomp1 \
+    poppler-utils \
+    libpoppler-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # ─── Working Directory ────────────────────────────────────────────────────────
