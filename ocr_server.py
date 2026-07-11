@@ -87,6 +87,58 @@ def run_ocr(image_path, lang='en'):
     if not result:
         return ""
 
+    # New PaddleX/PP-OCRv5 format: result is a list containing a single dict
+    # with top-level 'rec_texts' / 'rec_boxes' / 'rec_scores' keys.
+    if isinstance(result, list) and len(result) > 0 and isinstance(result[0], dict) and 'rec_texts' in result[0]:
+        res_dict = result[0]
+        rec_texts = res_dict.get('rec_texts', [])
+        rec_boxes = res_dict.get('rec_boxes', [])
+        boxes = []
+        for i, text_val in enumerate(rec_texts):
+            if not text_val:
+                continue
+            try:
+                box = rec_boxes[i]
+                x0, y0, x1, y1 = float(box[0]), float(box[1]), float(box[2]), float(box[3])
+            except Exception:
+                x0 = y0 = x1 = y1 = 0
+            boxes.append({'top': y0, 'bottom': y1, 'x0': x0, 'x1': x1, 'text': text_val})
+        if not boxes:
+            return ""
+        boxes.sort(key=lambda w: w['top'])
+        lines = []
+        current_line = []
+        current_top = None
+        current_bottom = None
+        for w in boxes:
+            if current_top is None:
+                current_line.append(w)
+                current_top, current_bottom = w['top'], w['bottom']
+            else:
+                overlap = max(0, min(current_bottom, w['bottom']) - max(current_top, w['top']))
+                word_height = w['bottom'] - w['top']
+                if (word_height > 0 and (overlap / word_height) > 0.4) or (w['top'] == current_top):
+                    current_line.append(w)
+                    current_top = min(current_top, w['top'])
+                    current_bottom = max(current_bottom, w['bottom'])
+                else:
+                    lines.append(current_line)
+                    current_line = [w]
+                    current_top, current_bottom = w['top'], w['bottom']
+        if current_line:
+            lines.append(current_line)
+        text_result = ""
+        for line_words in lines:
+            line_words = sorted(line_words, key=lambda w: w['x0'])
+            line_str = ""
+            for i, w in enumerate(line_words):
+                if i > 0:
+                    gap = w['x0'] - line_words[i-1]['x1']
+                    if gap > 5: line_str += " "
+                line_str += w['text']
+            text_result += line_str + "\n"
+        return text_result.strip()
+
     res_list = result[0] if (isinstance(result, list) and len(result) > 0 and isinstance(result[0], list)) else result
     if not res_list:
         return ""
