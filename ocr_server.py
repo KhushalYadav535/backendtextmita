@@ -382,12 +382,17 @@ def extract_pdf():
                     print(f"  Page {page_num + 1}: scanned, running OCR...")
                     if ocr_en:
                         try:
-                            # page.to_image() needs poppler-utils installed on Linux/VPS
-                            pil_img = page.to_image(resolution=200).original
+                            # Use PyMuPDF (fitz) — no system poppler needed, pure pip install
+                            import fitz  # PyMuPDF
+                            fitz_doc = fitz.open(temp_path)
+                            fitz_page = fitz_doc[page_num]
+                            mat = fitz.Matrix(200 / 72, 200 / 72)  # 200 DPI
+                            clip = fitz_page.get_pixmap(matrix=mat, alpha=False)
                             img_path = os.path.join(temp_dir, f"page_{page_num}.png")
+                            clip.save(img_path)
+                            fitz_doc.close()
+                            print(f"  Page {page_num + 1}: rendered via fitz ({clip.width}x{clip.height}), running PaddleOCR...")
                             enh_path = os.path.join(temp_dir, f"page_{page_num}_enh.png")
-                            pil_img.save(img_path)
-                            print(f"  Page {page_num + 1}: rendered image size={pil_img.size}, running PaddleOCR...")
                             final_img = enhance_image(img_path, enh_path)
                             ocr_text = run_ocr(final_img, lang=lang)
                             print(f"  Page {page_num + 1}: OCR returned {len(ocr_text)} chars")

@@ -5,7 +5,10 @@ requests
 paddlepaddle
 paddleocr
 pdfplumber
+PyMuPDF
 Pillow
 opencv-python-headless
 openpyxl
 gunicorn
+chromadb
+sentence-transformers
